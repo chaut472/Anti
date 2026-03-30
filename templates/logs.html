@@ -1,0 +1,422 @@
+{% extends "base.html" %}
+{% block title %}Nhật ký sự kiện{% endblock %}
+{% block breadcrumb %}Nhật ký sự kiện{% endblock %}
+
+{% block extra_css %}
+<style>
+/* Detail Modal */
+.modal-overlay {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.7);
+    backdrop-filter: blur(4px);
+    z-index: 9000;
+    display: flex; align-items: center; justify-content: center;
+    animation: fadeInOverlay 0.2s ease;
+}
+@keyframes fadeInOverlay { from { opacity:0; } to { opacity:1; } }
+
+.modal-box {
+    background: var(--bg-card);
+    border: 1px solid rgba(0,212,255,0.25);
+    border-radius: 14px;
+    width: 520px;
+    max-width: 95vw;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.6), 0 0 30px rgba(0,212,255,0.1);
+    animation: slideUpModal 0.25s ease;
+    overflow: hidden;
+}
+@keyframes slideUpModal { from { transform:translateY(18px); opacity:0; } to { transform:none; opacity:1; } }
+
+.modal-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border-color);
+    font-weight: 700;
+    font-size: 0.95rem;
+}
+.modal-body { padding: 20px; }
+.modal-footer {
+    display: flex;
+    gap: 10px;
+    padding: 14px 20px;
+    border-top: 1px solid var(--border-color);
+    justify-content: flex-end;
+}
+.modal-close {
+    margin-left: auto;
+    background: none; border: none;
+    color: var(--text-muted); cursor: pointer;
+    font-size: 1rem; padding: 2px 6px;
+    border-radius: 4px; transition: var(--transition);
+}
+.modal-close:hover { color: var(--text-primary); background: rgba(255,255,255,0.05); }
+
+.detail-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+}
+.detail-item {
+    padding: 10px 12px;
+    background: var(--bg-primary);
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+}
+.detail-item .d-label {
+    font-size: 0.68rem; font-weight: 700;
+    color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;
+    margin-bottom: 4px;
+}
+.detail-item .d-value {
+    font-size: 0.82rem; color: var(--text-primary);
+    font-family: 'JetBrains Mono', monospace;
+    word-break: break-all;
+}
+.detail-full {
+    padding: 10px 12px;
+    background: var(--bg-primary);
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    margin-top: 10px;
+}
+
+/* New alert flash row */
+@keyframes flashNew { 0%,100%{background:transparent} 30%{background:rgba(0,212,255,0.07)} }
+.row-new { animation: flashNew 1.5s ease; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1><i class="fas fa-list-check"></i> Nhật ký sự kiện bảo mật</h1>
+    <p>Toàn bộ cảnh báo và sự kiện được ghi nhận bởi hệ thống IDS/IPS</p>
+</div>
+
+<!-- Filter Row -->
+<div class="card" style="margin-bottom:20px">
+    <div class="filter-row">
+        <input type="text" class="filter-input" id="logSearch"
+            placeholder="🔍 Tìm kiếm IP, loại tấn công, giao thức...">
+        <select class="filter-select" id="filterSeverity" onchange="applyFilters()">
+            <option value="">Tất cả mức độ</option>
+            <option value="CRITICAL">Critical</option>
+            <option value="HIGH">High</option>
+            <option value="MEDIUM">Medium</option>
+            <option value="LOW">Low</option>
+        </select>
+        <select class="filter-select" id="filterAction" onchange="applyFilters()">
+            <option value="">Tất cả hành động</option>
+            <option value="BLOCKED">Blocked</option>
+            <option value="ALERT">Alert</option>
+        </select>
+        <select class="filter-select" id="filterCategory" onchange="applyFilters()">
+            <option value="">Tất cả danh mục</option>
+            <option value="DoS/DDoS">DoS/DDoS</option>
+            <option value="Web Attack">Web Attack</option>
+            <option value="Reconnaissance">Reconnaissance</option>
+            <option value="Brute Force">Brute Force</option>
+        </select>
+        <button class="btn btn-primary" onclick="loadAlerts()">
+            <i class="fas fa-refresh"></i> Làm mới
+        </button>
+        <button class="btn btn-danger" onclick="clearAlerts()">
+            <i class="fas fa-trash"></i> Xóa tất cả
+        </button>
+    </div>
+</div>
+
+<!-- Alerts Table -->
+<div class="card">
+    <div class="card-header">
+        <div class="card-title"><i class="fas fa-table"></i> Danh sách cảnh báo</div>
+        <div style="display:flex;align-items:center;gap:10px">
+            <span class="live-badge">LIVE</span>
+            <span id="alertCount" style="font-size:0.78rem;color:var(--text-secondary)">-- sự kiện</span>
+        </div>
+    </div>
+    <div class="table-wrapper" style="max-height:600px" id="tableWrapper">
+        <table class="data-table" id="logsTable">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Thời gian</th>
+                    <th>Loại tấn công</th>
+                    <th>Mức độ</th>
+                    <th>IP Nguồn</th>
+                    <th>IP Đích</th>
+                    <th>Cổng</th>
+                    <th>Giao thức</th>
+                    <th>Danh mục</th>
+                    <th>Hành động</th>
+                    <th>Chi tiết</th>
+                </tr>
+            </thead>
+            <tbody id="logsTableBody">
+                <tr><td colspan="11" class="text-muted" style="text-align:center;padding:40px">
+                    <div class="spinner"></div>
+                </td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Detail Modal -->
+<div class="modal-overlay" id="detailModal" style="display:none" onclick="closeModal(event)">
+    <div class="modal-box">
+        <div class="modal-header" id="modalHeader">
+            <i class="fas fa-triangle-exclamation"></i>
+            <span id="modalTitle">Chi tiết cảnh báo</span>
+            <button class="modal-close" onclick="closeDetailModal()"><i class="fas fa-xmark"></i></button>
+        </div>
+        <div class="modal-body">
+            <div class="detail-grid" id="detailGrid"></div>
+            <div class="detail-full" id="detailExtra"></div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-danger btn-sm" id="modalBlockBtn" onclick="blockFromModal()">
+                <i class="fas fa-ban"></i> Chặn IP nguồn
+            </button>
+            <button class="btn btn-sm"
+                style="background:var(--accent-blue-dim);color:var(--accent-blue);border:1px solid var(--border-color)"
+                onclick="closeDetailModal()">
+                Đóng
+            </button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let allAlerts = [];
+let currentModalAlert = null;
+
+// ─── Load & filter ───
+async function loadAlerts() {
+    const data = await fetchAPI('/api/alerts?limit=200');
+    if (!data) return;
+    allAlerts = data;
+    updateCount(data.length);
+    renderTable(data);
+}
+
+function updateCount(n) {
+    document.getElementById('alertCount').textContent = n + ' sự kiện';
+}
+
+function applyFilters() {
+    const search = document.getElementById('logSearch').value.toLowerCase();
+    const sev    = document.getElementById('filterSeverity').value;
+    const action = document.getElementById('filterAction').value;
+    const cat    = document.getElementById('filterCategory').value;
+
+    const filtered = allAlerts.filter(a => {
+        if (sev    && a.severity !== sev)   return false;
+        if (action && a.action  !== action) return false;
+        if (cat    && a.category !== cat)   return false;
+        if (search && !JSON.stringify(a).toLowerCase().includes(search)) return false;
+        return true;
+    });
+
+    updateCount(filtered.length);
+    renderTable(filtered);
+}
+
+document.getElementById('logSearch').addEventListener('input', applyFilters);
+
+// ─── Render table ───
+function buildLogRow(a, i) {
+    return `
+    <tr id="log-row-${a.id}" class="${a._new ? 'row-new' : ''}">
+        <td class="text-muted" style="font-size:0.72rem">${a.id}</td>
+        <td style="font-family:'JetBrains Mono',monospace;font-size:0.72rem;white-space:nowrap">${a.timestamp}</td>
+        <td style="font-weight:600;color:var(--text-primary)">${a.type}</td>
+        <td><span class="badge ${getSevClass(a.severity)}">${a.severity}</span></td>
+        <td>
+            <span class="ip-addr" style="cursor:pointer" title="Click để xem chi tiết"
+                onclick="openDetailModal(${i})">${a.src_ip}</span>
+        </td>
+        <td class="ip-addr">${a.dst_ip}</td>
+        <td class="text-muted mono">${a.src_port} → ${a.dst_port}</td>
+        <td><span class="badge badge-info">${a.protocol}</span></td>
+        <td style="font-size:0.75rem;color:var(--text-secondary)">${a.category}</td>
+        <td><span class="badge ${getActionClass(a.action)}">${a.action}</span></td>
+        <td>
+            <button class="btn btn-sm"
+                style="background:var(--accent-blue-dim);color:var(--accent-blue);border:1px solid var(--border-color)"
+                onclick="openDetailModal(${i})" title="Xem chi tiết">
+                <i class="fas fa-eye"></i>
+            </button>
+        </td>
+    </tr>`;
+}
+
+function renderTable(data) {
+    const body = document.getElementById('logsTableBody');
+    window._alertsData = data;
+
+    if (!data?.length) {
+        body.innerHTML = `<tr><td colspan="11" style="text-align:center;padding:40px;color:var(--text-muted)">
+            <i class="fas fa-inbox" style="font-size:2rem;display:block;margin-bottom:8px"></i>
+            Không có dữ liệu phù hợp</td></tr>`;
+        return;
+    }
+
+    body.innerHTML = data.map((a, i) => buildLogRow(a, i)).join('');
+}
+
+// ─── Real-time new alert ───
+window.onNewAlert = function(alert) {
+    alert._new = true;
+    allAlerts.unshift(alert);
+    updateCount(allAlerts.length);
+
+    // Prepend to current rendered table (above active filter)
+    applyFilters();
+};
+
+// ─── Clear ───
+async function clearAlerts() {
+    if (!confirm('Bạn có chắc muốn xóa tất cả cảnh báo?')) return;
+    const res  = await fetch('/api/clear-alerts', { method: 'POST' });
+    const data = await res.json();
+    showToast(data.message, 'success');
+
+    allAlerts = [];
+    // Reset all filters
+    document.getElementById('logSearch').value = '';
+    document.getElementById('filterSeverity').value = '';
+    document.getElementById('filterAction').value = '';
+    document.getElementById('filterCategory').value = '';
+    updateCount(0);
+    renderTable([]);
+}
+
+// ─── Detail Modal ───
+function openDetailModal(idx) {
+    const a = window._alertsData[idx];
+    if (!a) return;
+    currentModalAlert = a;
+
+    // Update modal header color
+    const sevColors = { CRITICAL:'#ff3d3d', HIGH:'#ff8c00', MEDIUM:'#ffd700', LOW:'#00ff88' };
+    const color = sevColors[a.severity] || '#00d4ff';
+
+    document.getElementById('modalHeader').style.borderBottom = `1px solid ${color}33`;
+    document.getElementById('modalTitle').textContent = a.type;
+    document.getElementById('modalTitle').style.color = color;
+
+    document.getElementById('detailGrid').innerHTML = `
+        <div class="detail-item">
+            <div class="d-label">Thời gian</div>
+            <div class="d-value">${a.timestamp}</div>
+        </div>
+        <div class="detail-item">
+            <div class="d-label">Mức độ</div>
+            <div class="d-value" style="color:${color}">● ${a.severity}</div>
+        </div>
+        <div class="detail-item">
+            <div class="d-label">IP Nguồn</div>
+            <div class="d-value" style="color:var(--accent-blue)">${a.src_ip}:${a.src_port}</div>
+        </div>
+        <div class="detail-item">
+            <div class="d-label">IP Đích</div>
+            <div class="d-value">${a.dst_ip}:${a.dst_port}</div>
+        </div>
+        <div class="detail-item">
+            <div class="d-label">Giao thức</div>
+            <div class="d-value">${a.protocol}</div>
+        </div>
+        <div class="detail-item">
+            <div class="d-label">Danh mục</div>
+            <div class="d-value">${a.category}</div>
+        </div>
+        <div class="detail-item">
+            <div class="d-label">Hành động</div>
+            <div class="d-value" style="color:${a.action==='BLOCKED'?'#ff3d3d':'#ffd700'}">${a.action}</div>
+        </div>
+        <div class="detail-item">
+            <div class="d-label">Rule ID</div>
+            <div class="d-value">${a.rule_id || 'N/A'}</div>
+        </div>
+    `;
+
+    document.getElementById('detailExtra').innerHTML = `
+        <div class="d-label" style="font-size:0.68rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">
+            Mô tả chi tiết
+        </div>
+        <div style="font-size:0.82rem;color:var(--text-secondary);line-height:1.6">${a.details || 'Không có'}</div>
+    `;
+
+    // Update block button state
+    checkIPBlockedState(a.src_ip);
+    document.getElementById('detailModal').style.display = 'flex';
+}
+
+async function checkIPBlockedState(ip) {
+    const btn = document.getElementById('modalBlockBtn');
+    const blocked = await fetchAPI('/api/blocked-ips');
+    if (!blocked) return;
+    const isBlocked = blocked.some(b => b.ip === ip);
+    if (isBlocked) {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-check-circle"></i> Đã chặn';
+        btn.style.background = 'rgba(0,255,136,0.12)';
+        btn.style.color = 'var(--accent-green)';
+        btn.style.border = '1px solid rgba(0,255,136,0.25)';
+    } else {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-ban"></i> Chặn IP nguồn';
+        btn.style = '';
+        btn.className = 'btn btn-danger btn-sm';
+    }
+}
+
+async function blockFromModal() {
+    if (!currentModalAlert) return;
+    const ip = currentModalAlert.src_ip;
+    const btn = document.getElementById('modalBlockBtn');
+
+    btn.disabled = true;
+    btn.innerHTML = '<div class="spinner" style="width:12px;height:12px;border-width:2px;display:inline-block"></div>';
+
+    const res  = await fetch('/api/block-ip', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ip, reason: `Blocked via Log: ${currentModalAlert.type}` })
+    });
+    const data = await res.json();
+
+    if (data.status === 'ok') {
+        showToast(data.message, 'success');
+        btn.innerHTML = '<i class="fas fa-check-circle"></i> Đã chặn';
+        btn.style.background = 'rgba(0,255,136,0.12)';
+        btn.style.color = 'var(--accent-green)';
+        btn.style.border = '1px solid rgba(0,255,136,0.25)';
+        btn.className = 'btn btn-sm';
+    } else {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-ban"></i> Chặn IP nguồn';
+        showToast(data.message || 'Lỗi khi chặn', 'error');
+    }
+}
+
+function closeDetailModal() {
+    document.getElementById('detailModal').style.display = 'none';
+    currentModalAlert = null;
+}
+
+function closeModal(event) {
+    if (event.target.id === 'detailModal') closeDetailModal();
+}
+
+// ESC to close
+document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') closeDetailModal();
+});
+
+loadAlerts();
+</script>
+{% endblock %}

@@ -1,0 +1,286 @@
+{% extends "base.html" %}
+{% block title %}IP bị chặn{% endblock %}
+{% block breadcrumb %}IP bị chặn{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1><i class="fas fa-ban"></i> Quản lý IP bị chặn</h1>
+    <p>Danh sách các địa chỉ IP đã bị hệ thống IDS/IPS chặn tự động hoặc thủ công</p>
+</div>
+
+<!-- Manual block form -->
+<div class="card" style="margin-bottom:20px">
+    <div class="card-header">
+        <div class="card-title"><i class="fas fa-shield-plus"></i> Chặn IP thủ công</div>
+    </div>
+    <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
+        <div style="flex:1;min-width:200px">
+            <label style="font-size:0.78rem;color:var(--text-muted);display:block;margin-bottom:6px">Địa chỉ IP</label>
+            <input type="text" class="filter-input" id="manualIP"
+                placeholder="Ví dụ: 192.168.1.100" style="width:100%"
+                onkeydown="if(event.key==='Enter') blockManual()">
+        </div>
+        <div style="flex:2;min-width:250px">
+            <label style="font-size:0.78rem;color:var(--text-muted);display:block;margin-bottom:6px">Lý do chặn</label>
+            <input type="text" class="filter-input" id="manualReason"
+                placeholder="Ví dụ: Phát hiện hành vi đáng ngờ..."
+                style="width:100%" onkeydown="if(event.key==='Enter') blockManual()">
+        </div>
+        <button class="btn btn-danger" id="btnBlockManual" onclick="blockManual()">
+            <i class="fas fa-ban"></i> Chặn ngay
+        </button>
+    </div>
+</div>
+
+<!-- Stats -->
+<div class="stats-grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:20px">
+    <div class="stat-card" style="--stat-color:#ff3d3d">
+        <div class="stat-icon"><i class="fas fa-ban"></i></div>
+        <div class="stat-info">
+            <div class="stat-value" id="bStatTotal">--</div>
+            <div class="stat-label">Tổng IP bị chặn</div>
+        </div>
+    </div>
+    <div class="stat-card" style="--stat-color:#ff8c00">
+        <div class="stat-icon"><i class="fas fa-robot"></i></div>
+        <div class="stat-info">
+            <div class="stat-value" id="bStatAuto">--</div>
+            <div class="stat-label">Chặn tự động</div>
+        </div>
+    </div>
+    <div class="stat-card" style="--stat-color:#7c3aed">
+        <div class="stat-icon"><i class="fas fa-user-shield"></i></div>
+        <div class="stat-info">
+            <div class="stat-value" id="bStatManual">--</div>
+            <div class="stat-label">Chặn thủ công</div>
+        </div>
+    </div>
+</div>
+
+<!-- Blocked IPs Table -->
+<div class="card">
+    <div class="card-header">
+        <div class="card-title"><i class="fas fa-table-cells-large"></i> Danh sách IP bị chặn</div>
+        <div style="display:flex;gap:10px">
+            <input type="text" class="filter-input" id="blockSearch"
+                placeholder="Tìm kiếm IP..." style="width:200px"
+                oninput="filterBlocked()">
+            <button class="btn btn-sm"
+                style="background:var(--accent-blue-dim);color:var(--accent-blue);border:1px solid var(--border-color)"
+                onclick="loadBlocked()" title="Làm mới">
+                <i class="fas fa-refresh"></i>
+            </button>
+        </div>
+    </div>
+    <div class="table-wrapper" style="max-height:500px">
+        <table class="data-table" id="blockedTable">
+            <thead>
+                <tr>
+                    <th>Địa chỉ IP</th>
+                    <th>Lý do chặn</th>
+                    <th>Thời gian chặn</th>
+                    <th>Số gói tin</th>
+                    <th>Loại</th>
+                    <th>Hành động</th>
+                </tr>
+            </thead>
+            <tbody id="blockedTableBody">
+                <tr><td colspan="6" style="text-align:center;padding:40px">
+                    <div class="spinner"></div>
+                </td></tr>
+            </tbody>
+        </table>
+    </div>
+    <div id="emptyBlocked" class="empty-state" style="display:none">
+        <i class="fas fa-shield-check"></i>
+        <p>Không có IP nào bị chặn</p>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Inject animation style
+const _style = document.createElement('style');
+_style.textContent = '@keyframes fadeInRow { from { opacity:0; transform:translateY(-8px); } to { opacity:1; transform:none; } }';
+document.head.appendChild(_style);
+
+let blockedData = [];
+
+// ─── Load & render ───
+async function loadBlocked() {
+    const data = await fetchAPI('/api/blocked-ips');
+    if (!data) return;
+    blockedData = data;
+    renderBlocked(data);
+    updateBlockedStats(data);
+}
+
+function updateBlockedStats(data) {
+    const auto = data.filter(d => d.auto_blocked).length;
+    document.getElementById('bStatTotal').textContent = data.length;
+    document.getElementById('bStatAuto').textContent = auto;
+    document.getElementById('bStatManual').textContent = data.length - auto;
+}
+
+function filterBlocked() {
+    const q = document.getElementById('blockSearch').value.toLowerCase();
+    const filtered = q
+        ? blockedData.filter(d => d.ip.includes(q) || d.reason.toLowerCase().includes(q))
+        : blockedData;
+    renderBlocked(filtered);
+}
+
+function renderBlocked(data) {
+    const tbody = document.getElementById('blockedTableBody');
+    const empty = document.getElementById('emptyBlocked');
+
+    if (!data?.length) {
+        tbody.innerHTML = '';
+        if (empty) empty.style.display = 'block';
+        return;
+    }
+    if (empty) empty.style.display = 'none';
+    tbody.innerHTML = data.map(d => buildRow(d)).join('');
+}
+
+function buildRow(d) {
+    return `
+    <tr id="row-${d.ip.replace(/\./g,'-')}" style="animation:fadeInRow 0.3s ease">
+        <td>
+            <div style="display:flex;align-items:center;gap:8px">
+                <i class="fas fa-circle" style="color:#ff3d3d;font-size:0.5rem"></i>
+                <span class="ip-addr">${d.ip}</span>
+            </div>
+        </td>
+        <td style="color:var(--text-secondary);font-size:0.8rem">${d.reason}</td>
+        <td style="font-family:'JetBrains Mono',monospace;font-size:0.72rem;color:var(--text-muted)">${d.blocked_at}</td>
+        <td class="mono">${(d.packet_count || 0).toLocaleString()}</td>
+        <td>
+            <span class="badge ${d.auto_blocked ? 'badge-high' : 'badge-info'}">
+                <i class="fas ${d.auto_blocked ? 'fa-robot' : 'fa-user'}"></i>
+                ${d.auto_blocked ? 'Auto' : 'Manual'}
+            </span>
+        </td>
+        <td>
+            <button class="btn btn-success btn-sm"
+                id="unbtn-${d.ip.replace(/\./g,'-')}"
+                onclick="unblockIP('${d.ip}', this)">
+                <i class="fas fa-unlock"></i> Bỏ chặn
+            </button>
+        </td>
+    </tr>`;
+}
+
+// ─── Block manual ───
+async function blockManual() {
+    const ipEl = document.getElementById('manualIP');
+    const reasonEl = document.getElementById('manualReason');
+    const btn = document.getElementById('btnBlockManual');
+
+    const ip = ipEl.value.trim();
+    const reason = reasonEl.value.trim() || 'Manual block';
+
+    if (!ip) { showToast('Vui lòng nhập địa chỉ IP', 'error'); ipEl.focus(); return; }
+    if (!/^(\d{1,3}\.){3}\d{1,3}$/.test(ip)) {
+        showToast('Địa chỉ IP không hợp lệ', 'error'); ipEl.focus(); return;
+    }
+    if (blockedData.find(d => d.ip === ip)) {
+        showToast(`IP ${ip} đã bị chặn trước đó`, 'medium'); return;
+    }
+
+    // Loading state
+    btn.disabled = true;
+    const origHtml = btn.innerHTML;
+    btn.innerHTML = '<div class="spinner" style="width:14px;height:14px;border-width:2px;display:inline-block"></div> Đang chặn...';
+
+    const res = await fetch('/api/block-ip', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ip, reason })
+    });
+    const data = await res.json();
+
+    btn.disabled = false;
+    btn.innerHTML = origHtml;
+
+    if (data.status === 'ok') {
+        showToast(data.message, 'success');
+        ipEl.value = '';
+        reasonEl.value = '';
+        ipEl.focus();
+
+        // Insert row instantly at top of table (no full reload)
+        const newEntry = {
+            ip, reason, auto_blocked: false,
+            blocked_at: new Date().toLocaleString('vi-VN', { hour12: false }),
+            packet_count: 0
+        };
+        blockedData.unshift(newEntry);
+        updateBlockedStats(blockedData);
+
+        const tbody = document.getElementById('blockedTableBody');
+        const empty = document.getElementById('emptyBlocked');
+        if (empty) empty.style.display = 'none';
+        tbody.insertAdjacentHTML('afterbegin', buildRow(newEntry));
+    } else {
+        showToast(data.message || 'Lỗi khi chặn IP', 'error');
+    }
+}
+
+// ─── Unblock ───
+async function unblockIP(ip, btn) {
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<div class="spinner" style="width:14px;height:14px;border-width:2px;display:inline-block"></div>';
+    }
+
+    const res = await fetch('/api/unblock-ip', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ip })
+    });
+    const data = await res.json();
+
+    if (data.status === 'ok') {
+        showToast(data.message, 'success');
+
+        // Update local data & stats immediately
+        blockedData = blockedData.filter(d => d.ip !== ip);
+        updateBlockedStats(blockedData);
+
+        // Animate row slide-out then remove
+        const row = document.getElementById('row-' + ip.replace(/\./g, '-'));
+        if (row) {
+            row.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
+            row.style.opacity = '0';
+            row.style.transform = 'translateX(30px)';
+            setTimeout(() => {
+                row.remove();
+                if (!document.getElementById('blockedTableBody').querySelector('tr')) {
+                    document.getElementById('emptyBlocked').style.display = 'block';
+                }
+            }, 320);
+        }
+    } else {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-unlock"></i> Bỏ chặn';
+        }
+        showToast(data.message || 'Lỗi khi bỏ chặn', 'error');
+    }
+}
+
+// ─── WebSocket: auto-blocked events ───
+window.onNewAlert = function(alert) {
+    if (alert.action === 'BLOCKED') {
+        // Slight delay then reload to pick up auto-blocked IPs
+        setTimeout(loadBlocked, 800);
+    }
+};
+
+// Initial load + periodic refresh
+loadBlocked();
+setInterval(loadBlocked, 15000);
+</script>
+{% endblock %}
