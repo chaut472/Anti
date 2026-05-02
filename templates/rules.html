@@ -1,0 +1,248 @@
+{% extends "base.html" %}
+{% block title %}Quy tắc phát hiện{% endblock %}
+{% block breadcrumb %}Quy tắc phát hiện{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1><i class="fas fa-shield-virus"></i> Quy tắc phát hiện</h1>
+    <p>Quản lý các quy tắc IDS/IPS - bật/tắt và theo dõi hiệu quả phát hiện</p>
+</div>
+
+<!-- Rule Stats -->
+<div class="stats-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:20px">
+    <div class="stat-card" style="--stat-color:#00ff88">
+        <div class="stat-icon"><i class="fas fa-check-circle"></i></div>
+        <div class="stat-info">
+            <div class="stat-value" id="rStatEnabled">--</div>
+            <div class="stat-label">Quy tắc đang bật</div>
+        </div>
+    </div>
+    <div class="stat-card" style="--stat-color:#ff3d3d">
+        <div class="stat-icon"><i class="fas fa-times-circle"></i></div>
+        <div class="stat-info">
+            <div class="stat-value" id="rStatDisabled">--</div>
+            <div class="stat-label">Quy tắc đang tắt</div>
+        </div>
+    </div>
+    <div class="stat-card" style="--stat-color:#ffd700">
+        <div class="stat-icon"><i class="fas fa-fire"></i></div>
+        <div class="stat-info">
+            <div class="stat-value" id="rStatTotal">--</div>
+            <div class="stat-label">Tổng quy tắc</div>
+        </div>
+    </div>
+    <div class="stat-card" style="--stat-color:#00d4ff">
+        <div class="stat-icon"><i class="fas fa-bolt"></i></div>
+        <div class="stat-info">
+            <div class="stat-value" id="rStatTriggers">--</div>
+            <div class="stat-label">Lần kích hoạt</div>
+        </div>
+    </div>
+</div>
+
+<!-- Rules Table -->
+<div class="card" style="margin-bottom:20px">
+    <div class="card-header">
+        <div class="card-title"><i class="fas fa-list"></i> Danh sách quy tắc</div>
+        <div style="display:flex;gap:10px">
+            <button class="btn btn-success btn-sm" onclick="enableAll()">
+                <i class="fas fa-power-off"></i> Bật tất cả
+            </button>
+            <button class="btn btn-danger btn-sm" onclick="disableAll()">
+                <i class="fas fa-power-off"></i> Tắt tất cả
+            </button>
+        </div>
+    </div>
+    <div class="table-wrapper">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Tên quy tắc</th>
+                    <th>Mô tả</th>
+                    <th>Danh mục</th>
+                    <th>Mức độ</th>
+                    <th>Kích hoạt</th>
+                    <th>Trạng thái</th>
+                </tr>
+            </thead>
+            <tbody id="rulesTableBody">
+                <tr><td colspan="7" style="text-align:center;padding:40px"><div class="spinner"></div></td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Effectiveness Chart -->
+<div class="card">
+    <div class="card-header">
+        <div class="card-title"><i class="fas fa-chart-bar"></i> Hiệu quả quy tắc (số lần kích hoạt)</div>
+    </div>
+    <div class="chart-container">
+        <canvas id="ruleEffChart"></canvas>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let rulesData = [];
+
+async function loadRules() {
+    const data = await fetchAPI('/api/rules');
+    if (!data) return;
+    rulesData = data;
+    renderRules(data);
+    
+    document.getElementById('rStatTotal').textContent = data.length;
+    document.getElementById('rStatEnabled').textContent = data.filter(r => r.enabled).length;
+    document.getElementById('rStatDisabled').textContent = data.filter(r => !r.enabled).length;
+    document.getElementById('rStatTriggers').textContent = data.reduce((s, r) => s + r.trigger_count, 0);
+    
+    loadRuleChart(data);
+}
+
+function renderRules(rules) {
+    const tbody = document.getElementById('rulesTableBody');
+    tbody.innerHTML = rules.map(r => `
+        <tr id="rule-row-${r.id}" style="opacity:${r.enabled ? 1 : 0.5};transition:opacity 0.3s">
+            <td class="mono text-muted">${String(r.id).padStart(3,'0')}</td>
+            <td style="font-weight:600;color:var(--text-primary)">${r.name}</td>
+            <td style="font-size:0.78rem;color:var(--text-secondary);max-width:250px">${r.description}</td>
+            <td>
+                <span class="badge badge-info" style="font-size:0.65rem">${r.category}</span>
+            </td>
+            <td><span class="badge ${getSevClass(r.severity)}">${r.severity}</span></td>
+            <td>
+                <span id="trigger-${r.id}" class="mono"
+                    style="font-size:0.78rem;color:${r.trigger_count > 20 ? '#ff8c00' : 'var(--text-secondary)'}">
+                    ${r.trigger_count}
+                </span>
+            </td>
+            <td>
+                <label class="toggle-switch">
+                    <input type="checkbox" ${r.enabled ? 'checked' : ''}
+                        id="chk-rule-${r.id}"
+                        onchange="toggleRule(${r.id}, this)">
+                    <span class="toggle-slider"></span>
+                </label>
+            </td>
+        </tr>
+    `).join('');
+}
+
+async function toggleRule(ruleId, checkbox) {
+    // Optimistic UI - update row opacity immediately
+    const row = document.getElementById('rule-row-' + ruleId);
+    if (row) row.style.opacity = checkbox.checked ? '1' : '0.5';
+
+    const res = await fetch('/api/rules/toggle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rule_id: ruleId })
+    });
+    const data = await res.json();
+
+    if (data.status === 'ok') {
+        const rule = rulesData.find(r => r.id === ruleId);
+        if (rule) rule.enabled = data.enabled;
+
+        // Sync checkbox to server response (in case of discrepancy)
+        if (checkbox) checkbox.checked = data.enabled;
+        if (row) row.style.opacity = data.enabled ? '1' : '0.5';
+
+        // Update stats counters
+        const enabledCount = rulesData.filter(r => r.enabled).length;
+        document.getElementById('rStatEnabled').textContent = enabledCount;
+        document.getElementById('rStatDisabled').textContent = rulesData.length - enabledCount;
+
+        const ruleName = rulesData.find(r => r.id === ruleId)?.name || `#${ruleId}`;
+        showToast(
+            `${ruleName} đã được ${data.enabled ? 'bật' : 'tắt'}`,
+            data.enabled ? 'success' : 'medium'
+        );
+    } else {
+        // Revert checkbox on error
+        if (checkbox) checkbox.checked = !checkbox.checked;
+        if (row) row.style.opacity = checkbox?.checked ? '1' : '0.5';
+        showToast('Lỗi khi thay đổi quy tắc', 'error');
+    }
+}
+
+async function enableAll() {
+    const btn = event?.target?.closest('button');
+    if (btn) { btn.disabled = true; }
+
+    // Run all toggles in parallel for speed
+    await Promise.all(
+        rulesData
+            .filter(r => !r.enabled)
+            .map(r => fetch('/api/rules/toggle', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ rule_id: r.id })
+            }))
+    );
+
+    if (btn) btn.disabled = false;
+    showToast('Đã bật tất cả quy tắc', 'success');
+    loadRules();
+}
+
+async function disableAll() {
+    const btn = event?.target?.closest('button');
+    if (btn) { btn.disabled = true; }
+
+    await Promise.all(
+        rulesData
+            .filter(r => r.enabled)
+            .map(r => fetch('/api/rules/toggle', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ rule_id: r.id })
+            }))
+    );
+
+    if (btn) btn.disabled = false;
+    showToast('Đã tắt tất cả quy tắc', 'medium');
+    loadRules();
+}
+
+function loadRuleChart(rules) {
+    const ctx = document.getElementById('ruleEffChart');
+    const sorted = [...rules].sort((a,b) => b.trigger_count - a.trigger_count);
+    const colors = sorted.map(r => {
+        if (r.severity === 'CRITICAL') return '#ff3d3d';
+        if (r.severity === 'HIGH') return '#ff8c00';
+        if (r.severity === 'MEDIUM') return '#ffd700';
+        return '#00ff88';
+    });
+    
+    new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: sorted.map(r => r.name),
+            datasets: [{
+                label: 'Số lần kích hoạt',
+                data: sorted.map(r => r.trigger_count),
+                backgroundColor: colors.map(c => c+'44'),
+                borderColor: colors,
+                borderWidth: 2,
+                borderRadius: 6,
+            }]
+        },
+        options: {
+            ...defaultChartOptions(),
+            indexAxis: 'y',
+            plugins: { legend: { display: false } },
+            scales: {
+                x: { ticks: { color:'#4a5568' }, grid: { color:'rgba(255,255,255,0.04)' }, beginAtZero: true },
+                y: { ticks: { color:'#8899aa', font:{size:11} }, grid: { display:false } }
+            }
+        }
+    });
+}
+
+loadRules();
+</script>
+{% endblock %}

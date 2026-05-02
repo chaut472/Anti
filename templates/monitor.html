@@ -1,0 +1,324 @@
+{% extends "base.html" %}
+{% block title %}Lưu lượng mạng{% endblock %}
+{% block breadcrumb %}Lưu lượng mạng{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1><i class="fas fa-chart-line"></i> Giám sát lưu lượng mạng</h1>
+    <p>Phân tích lưu lượng mạng theo thời gian thực - giao thức, kết nối và băng thông</p>
+</div>
+
+<!-- Stats Row -->
+<div class="stats-grid" style="grid-template-columns:repeat(4,1fr)">
+    <div class="stat-card" style="--stat-color:#00d4ff">
+        <div class="stat-icon"><i class="fas fa-arrow-down"></i></div>
+        <div class="stat-info">
+            <div class="stat-value" id="mStatIn">--</div>
+            <div class="stat-label">Dữ liệu vào</div>
+        </div>
+    </div>
+    <div class="stat-card" style="--stat-color:#7c3aed">
+        <div class="stat-icon"><i class="fas fa-arrow-up"></i></div>
+        <div class="stat-info">
+            <div class="stat-value" id="mStatOut">--</div>
+            <div class="stat-label">Dữ liệu ra</div>
+        </div>
+    </div>
+    <div class="stat-card" style="--stat-color:#00ff88">
+        <div class="stat-icon"><i class="fas fa-bolt"></i></div>
+        <div class="stat-info">
+            <div class="stat-value" id="mStatPPS">--</div>
+            <div class="stat-label">Gói tin/giây</div>
+        </div>
+    </div>
+    <div class="stat-card" style="--stat-color:#ffd700">
+        <div class="stat-icon"><i class="fas fa-link"></i></div>
+        <div class="stat-info">
+            <div class="stat-value" id="mStatConn">--</div>
+            <div class="stat-label">Kết nối đang mở</div>
+        </div>
+    </div>
+</div>
+
+<!-- Live Traffic Chart -->
+<div class="card" style="margin-bottom:20px">
+    <div class="card-header">
+        <div class="card-title"><i class="fas fa-chart-area"></i> Băng thông thời gian thực</div>
+        <span class="live-badge">LIVE</span>
+    </div>
+    <div class="chart-container-lg">
+        <canvas id="liveTrafficChart"></canvas>
+    </div>
+</div>
+
+<!-- Row 2 -->
+<div class="grid-2" style="margin-bottom:20px">
+    <!-- Protocol Breakdown -->
+    <div class="card">
+        <div class="card-header">
+            <div class="card-title"><i class="fas fa-layer-group"></i> Phân tích giao thức</div>
+        </div>
+        <div class="chart-container">
+            <canvas id="protoBarChart"></canvas>
+        </div>
+    </div>
+    
+    <!-- Port Activity -->
+    <div class="card">
+        <div class="card-header">
+            <div class="card-title"><i class="fas fa-plug"></i> Cổng dịch vụ phổ biến</div>
+        </div>
+        <div class="table-wrapper">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Cổng</th>
+                        <th>Dịch vụ</th>
+                        <th>Kết nối</th>
+                        <th>Trạng thái</th>
+                    </tr>
+                </thead>
+                <tbody id="portTable">
+                    <tr><td colspan="4" class="text-muted" style="text-align:center;padding:20px">Đang tải...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Row 3 -->
+<div class="grid-2">
+    <!-- Hourly Heatmap (bar) -->
+    <div class="card">
+        <div class="card-header">
+            <div class="card-title"><i class="fas fa-clock"></i> Lưu lượng theo giờ (24h)</div>
+        </div>
+        <div class="chart-container">
+            <canvas id="hourlyChart"></canvas>
+        </div>
+    </div>
+    
+    <!-- Active Connections -->
+    <div class="card">
+        <div class="card-header">
+            <div class="card-title"><i class="fas fa-diagram-project"></i> Kết nối đang hoạt động</div>
+        </div>
+        <div class="table-wrapper" style="max-height:280px">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>IP Nguồn</th>
+                        <th>IP Đích</th>
+                        <th>Proto</th>
+                        <th>Trạng thái</th>
+                    </tr>
+                </thead>
+                <tbody id="connTable"></tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Live traffic buffer
+const trafficBuffer = { labels: [], inData: [], outData: [] };
+const MAX_POINTS = 30;
+
+// Initialize live chart
+const liveCtx = document.getElementById('liveTrafficChart');
+const liveChart = new Chart(liveCtx, {
+    type: 'line',
+    data: {
+        labels: trafficBuffer.labels,
+        datasets: [
+            {
+                label: 'Dữ liệu vào (KB/s)',
+                data: trafficBuffer.inData,
+                borderColor: '#00d4ff',
+                backgroundColor: 'rgba(0,212,255,0.06)',
+                fill: true, tension: 0.4, pointRadius: 0,
+            },
+            {
+                label: 'Dữ liệu ra (KB/s)',
+                data: trafficBuffer.outData,
+                borderColor: '#7c3aed',
+                backgroundColor: 'rgba(124,58,237,0.06)',
+                fill: true, tension: 0.4, pointRadius: 0,
+            }
+        ]
+    },
+    options: {
+        ...defaultChartOptions({ animation: { duration: 0 } }),
+        scales: {
+            x: { ticks: { color:'#4a5568', maxTicksLimit: 10 }, grid: { color:'rgba(255,255,255,0.04)' } },
+            y: {
+                ticks: { color:'#4a5568', callback: v => v + ' KB/s' },
+                grid: { color:'rgba(255,255,255,0.04)' }
+            }
+        }
+    }
+});
+
+// Update live chart every 2s
+window.onStatsUpdate = function(data) {
+    const now = new Date().toLocaleTimeString('vi-VN', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+    const inVal = Math.round((data.packets_per_second || 0) * 0.7 * 0.5);
+    const outVal = Math.round((data.packets_per_second || 0) * 0.3 * 0.5);
+    
+    trafficBuffer.labels.push(now);
+    trafficBuffer.inData.push(inVal);
+    trafficBuffer.outData.push(outVal);
+    
+    if (trafficBuffer.labels.length > MAX_POINTS) {
+        trafficBuffer.labels.shift();
+        trafficBuffer.inData.shift();
+        trafficBuffer.outData.shift();
+    }
+    
+    liveChart.update('none');
+    
+    // Stats
+    document.getElementById('mStatPPS').textContent = data.packets_per_second || 0;
+    document.getElementById('mStatIn').textContent = formatBytes((data.packets_per_second||0) * 0.7 * 800);
+    document.getElementById('mStatOut').textContent = formatBytes((data.packets_per_second||0) * 0.3 * 800);
+    document.getElementById('mStatConn').textContent = Math.round((data.packets_per_second||0) * 0.15);
+};
+
+async function initMonitor() {
+    await loadProtoBar();
+    await loadHourlyChart();
+    loadPortTable();
+    loadConnTable();
+    
+    // Refresh connection table every 5s
+    setInterval(loadConnTable, 5000);
+}
+
+async function loadProtoBar() {
+    const data = await fetchAPI('/api/protocol-stats');
+    if (!data) return;
+    
+    const ctx = document.getElementById('protoBarChart');
+    const colors = ['#00d4ff','#7c3aed','#ff8c00','#00ff88','#00ffcc','#ffd700'];
+    
+    new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: data.map(d => d.protocol),
+            datasets: [{
+                label: 'Gói tin',
+                data: data.map(d => d.count),
+                backgroundColor: colors.map(c => c + '33'),
+                borderColor: colors,
+                borderWidth: 2,
+                borderRadius: 6,
+            }]
+        },
+        options: {
+            ...defaultChartOptions(),
+            plugins: { legend: { display: false }, tooltip: { ...defaultChartOptions().plugins.tooltip } }
+        }
+    });
+}
+
+async function loadHourlyChart() {
+    const data = await fetchAPI('/api/hourly-traffic');
+    if (!data) return;
+    
+    const ctx = document.getElementById('hourlyChart');
+    
+    new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: data.map(d => d.hour),
+            datasets: [
+                {
+                    label: 'Gói tin',
+                    data: data.map(d => d.packets),
+                    backgroundColor: 'rgba(0,212,255,0.3)',
+                    borderColor: '#00d4ff',
+                    borderWidth: 1,
+                    borderRadius: 4,
+                },
+                {
+                    label: 'Đe dọa',
+                    data: data.map(d => d.threats),
+                    backgroundColor: 'rgba(255,61,61,0.3)',
+                    borderColor: '#ff3d3d',
+                    borderWidth: 1,
+                    borderRadius: 4,
+                    yAxisID: 'y1',
+                }
+            ]
+        },
+        options: {
+            ...defaultChartOptions(),
+            scales: {
+                x: { ticks: { color:'#4a5568', maxTicksLimit: 8 }, grid: { color:'rgba(255,255,255,0.04)' } },
+                y: { ticks: { color:'#4a5568' }, grid: { color:'rgba(255,255,255,0.04)' }, position:'left' },
+                y1: { ticks: { color:'#4a5568' }, grid: { display:false }, position:'right' },
+            }
+        }
+    });
+}
+
+function loadPortTable() {
+    const ports = [
+        { port:80, service:'HTTP', conns: Math.floor(Math.random()*500+100), status:'active' },
+        { port:443, service:'HTTPS', conns: Math.floor(Math.random()*800+200), status:'active' },
+        { port:22, service:'SSH', conns: Math.floor(Math.random()*50+10), status:'monitored' },
+        { port:3306, service:'MySQL', conns: Math.floor(Math.random()*30+5), status:'active' },
+        { port:53, service:'DNS', conns: Math.floor(Math.random()*200+50), status:'active' },
+        { port:21, service:'FTP', conns: Math.floor(Math.random()*20+2), status:'monitored' },
+        { port:3389, service:'RDP', conns: Math.floor(Math.random()*15+1), status:'blocked' },
+        { port:8080, service:'HTTP Alt', conns: Math.floor(Math.random()*100+20), status:'active' },
+    ];
+    
+    const table = document.getElementById('portTable');
+    const statusMap = {
+        active: '<span class="badge badge-low">Active</span>',
+        monitored: '<span class="badge badge-medium">Monitored</span>',
+        blocked: '<span class="badge badge-critical">Blocked</span>',
+    };
+    
+    table.innerHTML = ports.map(p => `
+        <tr>
+            <td class="ip-addr">${p.port}</td>
+            <td>${p.service}</td>
+            <td>${p.conns.toLocaleString()}</td>
+            <td>${statusMap[p.status]}</td>
+        </tr>
+    `).join('');
+}
+
+function loadConnTable() {
+    const srcIPs = ['192.168.1.10','10.0.0.5','172.16.0.20','203.113.45.67','185.220.101.5'];
+    const dstIPs = ['192.168.1.1','10.0.0.1','8.8.8.8'];
+    const protos = ['TCP','UDP','ICMP'];
+    const states = ['ESTABLISHED','TIME_WAIT','CLOSE_WAIT','SYN_SENT'];
+    
+    const rows = Array.from({length: 10}, () => ({
+        src: srcIPs[Math.floor(Math.random()*srcIPs.length)],
+        dst: dstIPs[Math.floor(Math.random()*dstIPs.length)],
+        proto: protos[Math.floor(Math.random()*protos.length)],
+        state: states[Math.floor(Math.random()*states.length)],
+    }));
+    
+    const table = document.getElementById('connTable');
+    if (table) {
+        table.innerHTML = rows.map(r => `
+            <tr>
+                <td class="ip-addr">${r.src}</td>
+                <td class="ip-addr">${r.dst}</td>
+                <td><span class="badge badge-info">${r.proto}</span></td>
+                <td style="font-size:0.72rem;color:${r.state==='ESTABLISHED'?'#00ff88':r.state.includes('WAIT')?'#ffd700':'#8899aa'}">${r.state}</td>
+            </tr>
+        `).join('');
+    }
+}
+
+initMonitor();
+</script>
+{% endblock %}

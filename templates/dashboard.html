@@ -1,0 +1,442 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block breadcrumb %}Dashboard{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1><i class="fas fa-gauge-high"></i> Bảng điều khiển</h1>
+    <p>Tổng quan hệ thống phát hiện và ngăn chặn xâm nhập theo thời gian thực</p>
+</div>
+
+<!-- Stats Grid -->
+<div class="stats-grid">
+    <div class="stat-card" style="--stat-color:#00d4ff;--stat-rgb:0,212,255">
+        <div class="stat-icon"><i class="fas fa-network-wired"></i></div>
+        <div class="stat-info">
+            <div class="stat-value" id="statPackets">--</div>
+            <div class="stat-label">Gói tin đã phân tích</div>
+            <div class="stat-change up" id="statPPS">-- pkt/s</div>
+        </div>
+    </div>
+    <div class="stat-card" style="--stat-color:#ff3d3d;--stat-rgb:255,61,61">
+        <div class="stat-icon"><i class="fas fa-triangle-exclamation"></i></div>
+        <div class="stat-info">
+            <div class="stat-value" id="statAlerts">--</div>
+            <div class="stat-label">Cảnh báo phát hiện</div>
+            <div class="stat-change" id="statCritical" style="color:var(--severity-critical)">-- CRITICAL</div>
+        </div>
+    </div>
+    <div class="stat-card" style="--stat-color:#ff8c00;--stat-rgb:255,140,0">
+        <div class="stat-icon"><i class="fas fa-ban"></i></div>
+        <div class="stat-info">
+            <div class="stat-value" id="statBlocked">--</div>
+            <div class="stat-label">IP bị chặn</div>
+            <div class="stat-change" id="statBlockedPkts" style="color:var(--severity-high)">-- hành động</div>
+        </div>
+    </div>
+    <div class="stat-card" style="--stat-color:#00ff88;--stat-rgb:0,255,136">
+        <div class="stat-icon"><i class="fas fa-hard-drive"></i></div>
+        <div class="stat-info">
+            <div class="stat-value" id="statBytes">--</div>
+            <div class="stat-label">Dữ liệu đã xử lý</div>
+            <div class="stat-change up" id="statUptime">Uptime: --</div>
+        </div>
+    </div>
+</div>
+
+<!-- Main Grid Row 1 -->
+<div class="grid-2-1">
+    <!-- Traffic Chart -->
+    <div class="card">
+        <div class="card-header">
+            <div class="card-title">
+                <i class="fas fa-chart-line"></i>
+                Lưu lượng mạng theo giờ
+            </div>
+            <span class="live-badge">LIVE</span>
+        </div>
+        <div class="chart-container">
+            <canvas id="trafficChart"></canvas>
+        </div>
+    </div>
+    
+    <!-- Threat Gauge -->
+    <div class="card">
+        <div class="card-header">
+            <div class="card-title"><i class="fas fa-radiation"></i> Mức độ đe dọa</div>
+        </div>
+        <div class="threat-gauge">
+            <div class="gauge-ring">
+                <svg viewBox="0 0 120 120" width="140" height="140">
+                    <circle class="gauge-track" cx="60" cy="60" r="55"/>
+                    <circle class="gauge-fill" id="gaugeArc" cx="60" cy="60" r="55" stroke="#ff3d3d"/>
+                </svg>
+                <div class="gauge-center">
+                    <div class="gauge-value" id="gaugeValue" style="color:#ff3d3d">--</div>
+                    <div class="gauge-label">Mức nguy</div>
+                </div>
+            </div>
+            <div class="threat-level-text" id="gaugeLevelText" style="color:#ff3d3d">Đang phân tích</div>
+        </div>
+        
+        <!-- Severity breakdown -->
+        <div style="margin-top:16px">
+            <div class="progress-item">
+                <span class="progress-label text-critical">Critical</span>
+                <div class="progress-bar-wrap">
+                    <div class="progress-bar-fill" id="barCritical" style="background:#ff3d3d;width:0%"></div>
+                </div>
+                <span class="progress-value" id="valCritical">0</span>
+            </div>
+            <div class="progress-item">
+                <span class="progress-label text-high">High</span>
+                <div class="progress-bar-wrap">
+                    <div class="progress-bar-fill" id="barHigh" style="background:#ff8c00;width:0%"></div>
+                </div>
+                <span class="progress-value" id="valHigh">0</span>
+            </div>
+            <div class="progress-item">
+                <span class="progress-label text-medium">Medium</span>
+                <div class="progress-bar-wrap">
+                    <div class="progress-bar-fill" id="barMedium" style="background:#ffd700;width:0%"></div>
+                </div>
+                <span class="progress-value" id="valMedium">0</span>
+            </div>
+            <div class="progress-item">
+                <span class="progress-label text-low">Low</span>
+                <div class="progress-bar-wrap">
+                    <div class="progress-bar-fill" id="barLow" style="background:#00ff88;width:0%"></div>
+                </div>
+                <span class="progress-value" id="valLow">0</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Main Grid Row 2 -->
+<div class="grid-2-1">
+    <!-- Recent Alerts -->
+    <div class="card">
+        <div class="card-header">
+            <div class="card-title"><i class="fas fa-bell"></i> Cảnh báo gần đây</div>
+            <a href="/logs" class="btn btn-sm" style="background:var(--accent-blue-dim);color:var(--accent-blue);border:1px solid var(--border-color)">
+                Xem tất cả <i class="fas fa-arrow-right"></i>
+            </a>
+        </div>
+        <div class="alert-feed" id="alertFeed">
+            <div class="empty-state"><i class="fas fa-spinner fa-spin"></i><p>Đang tải...</p></div>
+        </div>
+    </div>
+    
+    <!-- Protocol Distribution -->
+    <div class="card">
+        <div class="card-header">
+            <div class="card-title"><i class="fas fa-chart-pie"></i> Giao thức</div>
+        </div>
+        <div class="chart-container" style="height:200px">
+            <canvas id="protocolChart"></canvas>
+        </div>
+        <div id="protoList" style="margin-top:12px"></div>
+    </div>
+</div>
+
+<!-- Row 3 -->
+<div class="grid-2">
+    <!-- Top Threat IPs -->
+    <div class="card">
+        <div class="card-header">
+            <div class="card-title"><i class="fas fa-crosshairs"></i> Top IP đe dọa</div>
+            <a href="/threats" class="btn btn-sm" style="background:var(--accent-blue-dim);color:var(--accent-blue);border:1px solid var(--border-color)">
+                Chi tiết <i class="fas fa-arrow-right"></i>
+            </a>
+        </div>
+        <div id="topThreatsList"></div>
+    </div>
+    
+    <!-- Geo Distribution -->
+    <div class="card">
+        <div class="card-header">
+            <div class="card-title"><i class="fas fa-earth-asia"></i> Nguồn tấn công theo quốc gia</div>
+        </div>
+        <div id="geoList"></div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// ─── Dashboard Charts ───
+let trafficChart = null;
+let protocolChart = null;
+
+async function initDashboard() {
+    await loadStats();
+    await loadAlertFeed();
+    await loadProtocolChart();
+    await loadTopThreats();
+    await loadGeoData();
+    await loadTrafficChart();
+}
+
+// ─── Stats Update ───
+window.onStatsUpdate = function(data) {
+    // Packets
+    const pEl = document.getElementById('statPackets');
+    if (pEl) pEl.textContent = formatNumber(data.total_packets);
+    
+    const ppsEl = document.getElementById('statPPS');
+    if (ppsEl) ppsEl.textContent = `${data.packets_per_second} pkt/s`;
+    
+    // Alerts
+    const aEl = document.getElementById('statAlerts');
+    if (aEl) aEl.textContent = formatNumber(data.total_alerts);
+    
+    const cEl = document.getElementById('statCritical');
+    if (cEl) cEl.textContent = `${data.severity?.critical || 0} CRITICAL`;
+    
+    // Blocked
+    const bEl = document.getElementById('statBlocked');
+    if (bEl) bEl.textContent = data.blocked_ips_count || '0';
+    
+    const bpEl = document.getElementById('statBlockedPkts');
+    if (bpEl) bpEl.textContent = `${data.blocked_count || 0} hành động`;
+    
+    // Bytes
+    const byEl = document.getElementById('statBytes');
+    if (byEl) byEl.textContent = formatBytes(data.bytes_total || 0);
+    
+    const upEl = document.getElementById('statUptime');
+    if (upEl) upEl.textContent = `Uptime: ${data.uptime}`;
+    
+    // Gauge
+    updateGauge(data.threat_level, data.severity);
+    
+    // Severity bars
+    const sev = data.severity || {};
+    const total = (sev.critical||0) + (sev.high||0) + (sev.medium||0) + (sev.low||0) || 1;
+    
+    ['critical','high','medium','low'].forEach(s => {
+        const bar = document.getElementById(`bar${s.charAt(0).toUpperCase()+s.slice(1)}`);
+        const val = document.getElementById(`val${s.charAt(0).toUpperCase()+s.slice(1)}`);
+        if (bar) bar.style.width = ((sev[s]||0)/total*100) + '%';
+        if (val) val.textContent = sev[s]||0;
+    });
+    
+    // Update alert feed
+    if (data.recent_alerts) updateAlertFeed(data.recent_alerts);
+};
+
+window.onNewAlert = function(alert) {
+    // Dynamic alert feed update handled by stats_update
+};
+
+function updateGauge(level, sev) {
+    const gaugeArc = document.getElementById('gaugeArc');
+    const gaugeVal = document.getElementById('gaugeValue');
+    const gaugeTxt = document.getElementById('gaugeLevelText');
+    
+    const levelMap = {
+        'CRITICAL': { offset: 85, color: '#ff3d3d', label: 'NGUY HIỂM CỰC CAO', val: '95' },
+        'HIGH': { offset: 190, color: '#ff8c00', label: 'MỨC ĐỘ CAO', val: '70' },
+        'MEDIUM': { offset: 250, color: '#ffd700', label: 'CẢNH BÁO', val: '45' },
+        'LOW': { offset: 310, color: '#00ff88', label: 'AN TOÀN', val: '20' },
+    };
+    
+    const info = levelMap[level] || levelMap['LOW'];
+    if (gaugeArc) {
+        gaugeArc.style.strokeDashoffset = info.offset;
+        gaugeArc.style.stroke = info.color;
+    }
+    if (gaugeVal) { gaugeVal.textContent = info.val; gaugeVal.style.color = info.color; }
+    if (gaugeTxt) { gaugeTxt.textContent = info.label; gaugeTxt.style.color = info.color; }
+}
+
+async function loadStats() {
+    const data = await fetchAPI('/api/stats');
+    if (data && window.onStatsUpdate) window.onStatsUpdate(data);
+}
+
+// ─── Alert Feed ───
+async function loadAlertFeed() {
+    const data = await fetchAPI('/api/alerts?limit=15');
+    if (data) updateAlertFeed(data);
+}
+
+function updateAlertFeed(alerts) {
+    const feed = document.getElementById('alertFeed');
+    if (!feed || !alerts?.length) return;
+    
+    feed.innerHTML = alerts.slice(0, 15).map(a => `
+        <div class="alert-item">
+            <div class="alert-item-dot" style="background:${getSevColor(a.severity)}"></div>
+            <div class="alert-item-body">
+                <div class="alert-item-type">${a.type}</div>
+                <div class="alert-item-meta">
+                    <span>${a.src_ip}</span>
+                    <span>→ ${a.dst_ip}:${a.dst_port}</span>
+                    <span class="badge ${getSevClass(a.severity)}">${a.severity}</span>
+                    <span class="badge ${getActionClass(a.action)}">${a.action}</span>
+                </div>
+            </div>
+            <div class="alert-item-time">${a.timestamp?.split(' ')[1] || ''}</div>
+        </div>
+    `).join('');
+}
+
+// ─── Traffic Chart ───
+async function loadTrafficChart() {
+    const data = await fetchAPI('/api/hourly-traffic');
+    if (!data) return;
+    
+    const ctx = document.getElementById('trafficChart');
+    if (!ctx) return;
+    
+    if (trafficChart) trafficChart.destroy();
+    
+    trafficChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: data.map(d => d.hour),
+            datasets: [
+                {
+                    label: 'Gói tin',
+                    data: data.map(d => d.packets),
+                    borderColor: '#00d4ff',
+                    backgroundColor: 'rgba(0,212,255,0.08)',
+                    fill: true,
+                    tension: 0.4,
+                    pointRadius: 3,
+                    pointBackgroundColor: '#00d4ff',
+                },
+                {
+                    label: 'Mối đe dọa',
+                    data: data.map(d => d.threats),
+                    borderColor: '#ff3d3d',
+                    backgroundColor: 'rgba(255,61,61,0.08)',
+                    fill: true,
+                    tension: 0.4,
+                    pointRadius: 3,
+                    pointBackgroundColor: '#ff3d3d',
+                    yAxisID: 'y1',
+                }
+            ]
+        },
+        options: {
+            ...defaultChartOptions(),
+            scales: {
+                x: { ticks: { color: '#4a5568', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.04)' } },
+                y: { ticks: { color: '#4a5568', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.04)' }, position: 'left' },
+                y1: { ticks: { color: '#4a5568', font: { size: 10 } }, grid: { display: false }, position: 'right' },
+            }
+        }
+    });
+}
+
+// ─── Protocol Chart ───
+async function loadProtocolChart() {
+    const data = await fetchAPI('/api/protocol-stats');
+    if (!data) return;
+    
+    const ctx = document.getElementById('protocolChart');
+    if (!ctx) return;
+    
+    const colors = ['#00d4ff','#7c3aed','#ff8c00','#00ff88','#00ffcc','#ffd700'];
+    
+    if (protocolChart) protocolChart.destroy();
+    protocolChart = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+            labels: data.map(d => d.protocol),
+            datasets: [{
+                data: data.map(d => d.count),
+                backgroundColor: colors.map(c => c + '33'),
+                borderColor: colors,
+                borderWidth: 2,
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { labels: { color: '#8899aa', font: { size: 10 }, boxWidth: 12, padding: 8 }, position: 'right' },
+                tooltip: {
+                    backgroundColor: '#111a2e',
+                    borderColor: 'rgba(0,212,255,0.2)',
+                    borderWidth: 1,
+                    titleColor: '#e2e8f0',
+                    bodyColor: '#8899aa',
+                }
+            },
+            cutout: '65%',
+        }
+    });
+    
+    // Proto list
+    const list = document.getElementById('protoList');
+    if (list) {
+        list.innerHTML = data.slice(0,4).map((d, i) => `
+            <div class="progress-item">
+                <span class="progress-label">${d.protocol}</span>
+                <div class="progress-bar-wrap">
+                    <div class="progress-bar-fill" style="background:${colors[i]};width:${d.percentage}%"></div>
+                </div>
+                <span class="progress-value">${d.percentage}%</span>
+            </div>
+        `).join('');
+    }
+}
+
+// ─── Top Threats ───
+async function loadTopThreats() {
+    const data = await fetchAPI('/api/top-threats');
+    if (!data) return;
+    
+    const list = document.getElementById('topThreatsList');
+    if (!list) return;
+    
+    const max = data[0]?.count || 1;
+    list.innerHTML = data.slice(0,8).map((d, i) => `
+        <div class="progress-item">
+            <span class="progress-label mono text-accent" style="font-size:0.72rem">${d.ip}</span>
+            <div class="progress-bar-wrap">
+                <div class="progress-bar-fill" style="background:linear-gradient(90deg,#ff3d3d,#ff8c00);width:${d.count/max*100}%"></div>
+            </div>
+            <span class="progress-value">${d.count}</span>
+        </div>
+    `).join('');
+}
+
+// ─── Geo Data ───
+async function loadGeoData() {
+    const data = await fetchAPI('/api/geo-data');
+    if (!data) return;
+    
+    const list = document.getElementById('geoList');
+    if (!list) return;
+    
+    const max = data[0]?.threats || 1;
+    list.innerHTML = data.map(d => `
+        <div class="info-row">
+            <div class="info-label" style="display:flex;align-items:center;gap:8px">
+                <span style="font-size:1.2rem">${getFlagEmoji(d.code)}</span>
+                ${d.country}
+            </div>
+            <div style="display:flex;align-items:center;gap:12px">
+                <div style="width:80px;height:4px;background:rgba(255,255,255,0.06);border-radius:2px;overflow:hidden">
+                    <div style="height:100%;width:${d.threats/max*100}%;background:${d.threats > 20 ? '#ff3d3d' : d.threats > 10 ? '#ff8c00' : '#00d4ff'};border-radius:2px"></div>
+                </div>
+                <span class="info-value mono" style="font-size:0.75rem;min-width:30px;text-align:right">${d.threats}</span>
+            </div>
+        </div>
+    `).join('');
+}
+
+function getFlagEmoji(code) {
+    const flags = { VN:'🇻🇳', CN:'🇨🇳', US:'🇺🇸', RU:'🇷🇺', DE:'🇩🇪', BR:'🇧🇷', KR:'🇰🇷', JP:'🇯🇵' };
+    return flags[code] || '🌐';
+}
+
+// Init
+initDashboard();
+</script>
+{% endblock %}

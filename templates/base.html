@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Hệ thống Phát hiện và Ngăn chặn Xâm nhập - IDS/IPS Security Dashboard">
+    <title>{% block title %}IDS/IPS System{% endblock %} | CyberShield</title>
+    
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+    
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    
+    <!-- Socket.IO -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
+    
+    <!-- Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+    
+    <link rel="stylesheet" href="/static/css/main.css">
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-logo">
+            <div class="logo-icon">
+                <i class="fas fa-shield-halved"></i>
+            </div>
+            <div class="logo-text">
+                <span class="logo-title">CyberShield</span>
+                <span class="logo-sub">IDS/IPS System</span>
+            </div>
+        </div>
+        
+        <nav class="sidebar-nav">
+            <div class="nav-section-label">GIÁM SÁT</div>
+            <a href="/" class="nav-item {% if request.path == '/' %}active{% endif %}" id="nav-dashboard">
+                <i class="fas fa-gauge-high"></i>
+                <span>Dashboard</span>
+                <span class="nav-badge" id="badge-alerts"></span>
+            </a>
+            <a href="/monitor" class="nav-item {% if request.path == '/monitor' %}active{% endif %}" id="nav-monitor">
+                <i class="fas fa-chart-line"></i>
+                <span>Lưu lượng mạng</span>
+            </a>
+            <a href="/threats" class="nav-item {% if request.path == '/threats' %}active{% endif %}" id="nav-threats">
+                <i class="fas fa-skull-crossbones"></i>
+                <span>Phân tích mối đe dọa</span>
+            </a>
+            
+            <div class="nav-section-label">QUẢN LÝ</div>
+            <a href="/logs" class="nav-item {% if request.path == '/logs' %}active{% endif %}" id="nav-logs">
+                <i class="fas fa-list-check"></i>
+                <span>Nhật ký sự kiện</span>
+            </a>
+            <a href="/blocked" class="nav-item {% if request.path == '/blocked' %}active{% endif %}" id="nav-blocked">
+                <i class="fas fa-ban"></i>
+                <span>IP bị chặn</span>
+            </a>
+            <a href="/rules" class="nav-item {% if request.path == '/rules' %}active{% endif %}" id="nav-rules">
+                <i class="fas fa-shield-virus"></i>
+                <span>Quy tắc phát hiện</span>
+            </a>
+            
+            <div class="nav-section-label">HỆ THỐNG</div>
+            <a href="/about" class="nav-item {% if request.path == '/about' %}active{% endif %}" id="nav-about">
+                <i class="fas fa-circle-info"></i>
+                <span>Về hệ thống</span>
+            </a>
+        </nav>
+        
+        <!-- Engine Status -->
+        <div class="engine-status" id="engineStatusBox">
+            <div class="engine-status-header">
+                <span class="engine-dot" id="engineDot"></span>
+                <span id="engineStatusText">Đang tải...</span>
+            </div>
+            <div class="engine-controls">
+                <button class="btn-engine-start" id="btnStart" onclick="controlEngine('start')">
+                    <i class="fas fa-play"></i> Bắt đầu
+                </button>
+                <button class="btn-engine-stop" id="btnStop" onclick="controlEngine('stop')">
+                    <i class="fas fa-stop"></i> Dừng
+                </button>
+            </div>
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content" id="mainContent">
+        <!-- Top Bar -->
+        <header class="topbar">
+            <div class="topbar-left">
+                <button class="sidebar-toggle" onclick="toggleSidebar()">
+                    <i class="fas fa-bars"></i>
+                </button>
+                <div class="page-breadcrumb">
+                    <i class="fas fa-home"></i>
+                    <span>/ {% block breadcrumb %}Dashboard{% endblock %}</span>
+                </div>
+            </div>
+            <div class="topbar-right">
+                <div class="threat-indicator" id="threatIndicator">
+                    <span class="threat-dot"></span>
+                    <span id="threatLevelText">Đang phân tích...</span>
+                </div>
+                <div class="topbar-time" id="currentTime"></div>
+                <div class="topbar-user">
+                    <i class="fas fa-user-shield"></i>
+                    <span>Admin</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Page Content -->
+        <div class="page-content">
+            {% block content %}{% endblock %}
+        </div>
+    </main>
+
+    <!-- Alert Toast -->
+    <div class="toast-container" id="toastContainer"></div>
+    
+    <!-- Live Alert Popup -->
+    <div class="alert-popup" id="alertPopup" style="display:none">
+        <div class="alert-popup-header">
+            <i class="fas fa-triangle-exclamation"></i>
+            <span>CẢNH BÁO MỚI</span>
+            <button onclick="closePopup()"><i class="fas fa-xmark"></i></button>
+        </div>
+        <div class="alert-popup-body" id="alertPopupBody"></div>
+    </div>
+
+    <script src="/static/js/main.js"></script>
+    {% block extra_js %}{% endblock %}
+</body>
+</html>

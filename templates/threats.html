@@ -1,0 +1,378 @@
+{% extends "base.html" %}
+{% block title %}Phân tích mối đe dọa{% endblock %}
+{% block breadcrumb %}Phân tích mối đe dọa{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1><i class="fas fa-skull-crossbones"></i> Phân tích mối đe dọa</h1>
+    <p>Thống kê và phân loại các mối đe dọa được phát hiện bởi hệ thống</p>
+</div>
+
+<!-- Stats -->
+<div class="stats-grid" style="margin-bottom:20px">
+    <div class="stat-card" style="--stat-color:#ff3d3d">
+        <div class="stat-icon"><i class="fas fa-virus"></i></div>
+        <div class="stat-info">
+            <div class="stat-value" id="tStatCrit">--</div>
+            <div class="stat-label">Critical Threats</div>
+        </div>
+    </div>
+    <div class="stat-card" style="--stat-color:#ff8c00">
+        <div class="stat-icon"><i class="fas fa-fire"></i></div>
+        <div class="stat-info">
+            <div class="stat-value" id="tStatHigh">--</div>
+            <div class="stat-label">High Threats</div>
+        </div>
+    </div>
+    <div class="stat-card" style="--stat-color:#7c3aed">
+        <div class="stat-icon"><i class="fas fa-user-secret"></i></div>
+        <div class="stat-info">
+            <div class="stat-value" id="tStatIPs">--</div>
+            <div class="stat-label">IPs tấn công duy nhất</div>
+        </div>
+    </div>
+    <div class="stat-card" style="--stat-color:#00ff88">
+        <div class="stat-icon"><i class="fas fa-shield-check"></i></div>
+        <div class="stat-info">
+            <div class="stat-value" id="tStatBlocked">--</div>
+            <div class="stat-label">Đã ngăn chặn</div>
+        </div>
+    </div>
+</div>
+
+<!-- Row 1 -->
+<div class="grid-2" style="margin-bottom:20px">
+    <!-- Attack Type Chart -->
+    <div class="card">
+        <div class="card-header">
+            <div class="card-title"><i class="fas fa-chart-bar"></i> Phân loại tấn công</div>
+        </div>
+        <div class="chart-container-lg">
+            <canvas id="attackTypeChart"></canvas>
+        </div>
+    </div>
+    
+    <!-- Severity Donut -->
+    <div class="card">
+        <div class="card-header">
+            <div class="card-title"><i class="fas fa-chart-pie"></i> Phân bố mức độ nghiêm trọng</div>
+        </div>
+        <div class="chart-container" style="height:220px">
+            <canvas id="severityChart"></canvas>
+        </div>
+        <div style="margin-top:16px" id="severityLegend"></div>
+    </div>
+</div>
+
+<!-- Row 2 -->
+<div class="grid-2" style="margin-bottom:20px">
+    <!-- Top Attack IPs Detailed -->
+    <div class="card">
+        <div class="card-header">
+            <div class="card-title"><i class="fas fa-crosshairs"></i> Top IP tấn công</div>
+        </div>
+        <div class="table-wrapper" style="max-height:320px">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>IP Nguồn</th>
+                        <th>Số tấn công</th>
+                        <th>Rủi ro</th>
+                        <th>Hành động</th>
+                    </tr>
+                </thead>
+                <tbody id="threatIPTable"></tbody>
+            </table>
+        </div>
+    </div>
+    
+    <!-- Attack Timeline -->
+    <div class="card">
+        <div class="card-header">
+            <div class="card-title"><i class="fas fa-timeline"></i> Timeline tấn công (24h)</div>
+        </div>
+        <div class="chart-container">
+            <canvas id="timelineChart"></canvas>
+        </div>
+    </div>
+</div>
+
+<!-- Category Distribution -->
+<div class="card">
+    <div class="card-header">
+        <div class="card-title"><i class="fas fa-tags"></i> Phân tích theo danh mục tấn công</div>
+    </div>
+    <div class="grid-3" style="margin:0">
+        <div>
+            <div class="section-title">DoS/DDoS</div>
+            <div id="catDDoS"></div>
+        </div>
+        <div>
+            <div class="section-title">Web Attacks</div>
+            <div id="catWeb"></div>
+        </div>
+        <div>
+            <div class="section-title">Reconnaissance</div>
+            <div id="catRecon"></div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+window.onStatsUpdate = function(data) {
+    document.getElementById('tStatCrit').textContent = data.severity?.critical || 0;
+    document.getElementById('tStatHigh').textContent = data.severity?.high || 0;
+    document.getElementById('tStatBlocked').textContent = data.blocked_count || 0;
+};
+
+async function initThreats() {
+    const stats = await fetchAPI('/api/stats');
+    if (stats && window.onStatsUpdate) window.onStatsUpdate(stats);
+    
+    const threats = await fetchAPI('/api/top-threats');
+    if (threats) {
+        document.getElementById('tStatIPs').textContent = threats.length;
+        loadThreatIPTable(threats);
+    }
+    
+    const alerts = await fetchAPI('/api/alerts?limit=200');
+    if (alerts) {
+        loadAttackTypeChart(alerts);
+        loadSeverityChart(alerts);
+        loadTimelineChart(alerts);
+        loadCategoryAnalysis(alerts);
+    }
+}
+
+function loadAttackTypeChart(alerts) {
+    const typeCounts = {};
+    alerts.forEach(a => { typeCounts[a.type] = (typeCounts[a.type] || 0) + 1; });
+    const sorted = Object.entries(typeCounts).sort((a,b) => b[1]-a[1]).slice(0,8);
+    
+    const ctx = document.getElementById('attackTypeChart');
+    const colors = ['#ff3d3d','#ff8c00','#ffd700','#7c3aed','#00d4ff','#00ff88','#00ffcc','#ff6b6b'];
+    
+    new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: sorted.map(s => s[0]),
+            datasets: [{
+                data: sorted.map(s => s[1]),
+                backgroundColor: colors.map(c => c+'44'),
+                borderColor: colors,
+                borderWidth: 2,
+                borderRadius: 6,
+            }]
+        },
+        options: {
+            ...defaultChartOptions(),
+            indexAxis: 'y',
+            plugins: { legend: { display: false } },
+            scales: {
+                x: { ticks: { color:'#4a5568' }, grid: { color:'rgba(255,255,255,0.04)' } },
+                y: { ticks: { color:'#8899aa', font:{size:11} }, grid: { display:false } }
+            }
+        }
+    });
+}
+
+function loadSeverityChart(alerts) {
+    const sevCounts = { CRITICAL:0, HIGH:0, MEDIUM:0, LOW:0 };
+    alerts.forEach(a => { if (sevCounts[a.severity] !== undefined) sevCounts[a.severity]++; });
+    
+    const ctx = document.getElementById('severityChart');
+    const colors = { CRITICAL:'#ff3d3d', HIGH:'#ff8c00', MEDIUM:'#ffd700', LOW:'#00ff88' };
+    
+    new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+            labels: Object.keys(sevCounts),
+            datasets: [{
+                data: Object.values(sevCounts),
+                backgroundColor: Object.values(colors).map(c => c+'33'),
+                borderColor: Object.values(colors),
+                borderWidth: 2,
+            }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: { backgroundColor:'#111a2e', borderColor:'rgba(0,212,255,0.2)', borderWidth:1, titleColor:'#e2e8f0', bodyColor:'#8899aa' }
+            },
+            cutout: '70%',
+        }
+    });
+    
+    const legend = document.getElementById('severityLegend');
+    const total = Object.values(sevCounts).reduce((a,b) => a+b, 0) || 1;
+    legend.innerHTML = Object.entries(sevCounts).map(([k,v]) => `
+        <div class="progress-item">
+            <span class="progress-label" style="color:${colors[k]}">${k}</span>
+            <div class="progress-bar-wrap">
+                <div class="progress-bar-fill" style="background:${colors[k]};width:${v/total*100}%"></div>
+            </div>
+            <span class="progress-value">${v}</span>
+        </div>
+    `).join('');
+}
+
+function loadTimelineChart(alerts) {
+    // Group alerts by hour
+    const hourlyData = {};
+    for (let i=0; i<24; i++) {
+        const h = String(i).padStart(2,'0') + ':00';
+        hourlyData[h] = { CRITICAL:0, HIGH:0, MEDIUM:0, LOW:0 };
+    }
+    
+    alerts.forEach(a => {
+        const hour = (a.timestamp?.split(' ')[1] || '00:00:00').substring(0,2) + ':00';
+        if (hourlyData[hour] && hourlyData[hour][a.severity] !== undefined) {
+            hourlyData[hour][a.severity]++;
+        }
+    });
+    
+    const labels = Object.keys(hourlyData).filter((_, i) => i % 2 === 0);
+    const ctx = document.getElementById('timelineChart');
+    
+    new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [
+                { label:'Critical', data: labels.map(h => hourlyData[h]?.CRITICAL||0), borderColor:'#ff3d3d', tension:0.4, pointRadius:2 },
+                { label:'High', data: labels.map(h => hourlyData[h]?.HIGH||0), borderColor:'#ff8c00', tension:0.4, pointRadius:2 },
+                { label:'Medium', data: labels.map(h => hourlyData[h]?.MEDIUM||0), borderColor:'#ffd700', tension:0.4, pointRadius:2 },
+            ]
+        },
+        options: defaultChartOptions()
+    });
+}
+
+async function loadThreatIPTable(threats) {
+    const tbody = document.getElementById('threatIPTable');
+    const maxCount = threats[0]?.count || 1;
+
+    // Load already-blocked IPs first
+    const blocked = await fetchAPI('/api/blocked-ips');
+    const blockedSet = new Set((blocked || []).map(b => b.ip));
+
+    tbody.innerHTML = threats.map((t, i) => {
+        const risk = t.count > 30 ? 'CRITICAL' : t.count > 15 ? 'HIGH' : t.count > 5 ? 'MEDIUM' : 'LOW';
+        const isBlocked = blockedSet.has(t.ip);
+        const btnHtml = isBlocked
+            ? `<button class="btn btn-sm" disabled
+                style="background:rgba(0,255,136,0.12);color:var(--accent-green);
+                       border:1px solid rgba(0,255,136,0.25);cursor:default">
+                   <i class="fas fa-check-circle"></i> Đã chặn
+               </button>`
+            : `<button class="btn btn-danger btn-sm"
+                id="btn-block-${t.ip.replace(/\./g,'-')}"
+                onclick="blockIP('${t.ip}', this)">
+                   <i class="fas fa-ban"></i> Chặn
+               </button>`;
+        return `
+        <tr id="row-threat-${t.ip.replace(/\./g,'-')}">
+            <td class="text-muted">${i+1}</td>
+            <td class="ip-addr">${t.ip}</td>
+            <td>
+                <div style="display:flex;align-items:center;gap:8px">
+                    <div style="width:60px;height:4px;background:rgba(255,255,255,0.06);border-radius:2px">
+                        <div style="height:100%;width:${t.count/maxCount*100}%;background:#ff3d3d;border-radius:2px"></div>
+                    </div>
+                    <span class="mono" style="font-size:0.75rem">${t.count}</span>
+                </div>
+            </td>
+            <td><span class="badge ${getSevClass(risk)}" id="risk-${t.ip.replace(/\./g,'-')}">${risk}</span></td>
+            <td id="action-${t.ip.replace(/\./g,'-')}">${btnHtml}</td>
+        </tr>`;
+    }).join('');
+}
+
+function markIPBlocked(ip) {
+    const cell = document.getElementById('action-' + ip.replace(/\./g,'-'));
+    if (!cell) return;
+    cell.innerHTML = `<button class="btn btn-sm" disabled
+        style="background:rgba(0,255,136,0.12);color:var(--accent-green);
+               border:1px solid rgba(0,255,136,0.25);cursor:default">
+        <i class="fas fa-check-circle"></i> Đã chặn
+    </button>`;
+}
+
+async function blockIP(ip, btn) {
+    if (btn && btn.disabled) return;
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<div class="spinner" style="width:14px;height:14px;border-width:2px;display:inline-block"></div>';
+    }
+
+    const res = await fetch('/api/block-ip', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ip, reason: 'Blocked from Threats page' })
+    });
+    const data = await res.json();
+
+    if (data.status === 'ok') {
+        markIPBlocked(ip);
+        showToast(data.message, 'success');
+        // Update stat counter instantly
+        const statEl = document.getElementById('tStatBlocked');
+        if (statEl) statEl.textContent = parseInt(statEl.textContent || 0) + 1;
+    } else {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-ban"></i> Chặn';
+        }
+        showToast(data.message || 'Loi khi chan IP', 'error');
+    }
+}
+
+function loadCategoryAnalysis(alerts) {
+    const cats = { 'DoS/DDoS': [], 'Web Attack': [], 'Reconnaissance': [] };
+    const typeCounts = {};
+    
+    alerts.forEach(a => {
+        typeCounts[a.type] = (typeCounts[a.type] || 0) + 1;
+    });
+    
+    const catMapping = {
+        'DoS/DDoS': ['SYN Flood','ICMP Flood','HTTP Flood','DNS Amplification'],
+        'Web Attack': ['SQL Injection','XSS Attack'],
+        'Reconnaissance': ['Port Scan','Nmap OS Detection'],
+    };
+    
+    Object.entries(catMapping).forEach(([cat, types]) => {
+        const el = document.getElementById('cat' + (cat === 'DoS/DDoS' ? 'DDoS' : cat === 'Web Attack' ? 'Web' : 'Recon'));
+        if (!el) return;
+        el.innerHTML = types.map(t => {
+            const count = typeCounts[t] || 0;
+            const max = Math.max(...types.map(x => typeCounts[x]||0)) || 1;
+            return `
+            <div class="progress-item">
+                <span class="progress-label" style="font-size:0.72rem;width:120px">${t}</span>
+                <div class="progress-bar-wrap">
+                    <div class="progress-bar-fill" style="background:linear-gradient(90deg,#ff3d3d,#7c3aed);width:${count/max*100}%"></div>
+                </div>
+                <span class="progress-value">${count}</span>
+            </div>`;
+        }).join('');
+    });
+}
+
+async function blockIP(ip) {
+    const res = await fetch('/api/block-ip', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ip, reason:'Blocked from Threats page'})
+    });
+    const data = await res.json();
+    showToast(data.message, 'success');
+}
+
+initThreats();
+</script>
+{% endblock %}
